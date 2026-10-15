@@ -1,5 +1,6 @@
 package com.godoy.corebanking.domain.entity;
 
+import com.godoy.corebanking.exception.BusinessRuleException;
 import jakarta.persistence.*;
 import lombok.*;
 import org.springframework.data.annotation.CreatedDate;
@@ -59,6 +60,9 @@ public class Customer {
     }
 
     public void update(String fullName, String email, String phone) {
+        if (!active) {
+            throw new BusinessRuleException("Cliente inativo não pode ser atualizado");
+        }
         this.fullName = fullName;
         this.email = email;
         this.phone = phone;

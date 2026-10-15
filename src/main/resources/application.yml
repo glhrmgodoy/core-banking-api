@@ -23,6 +23,11 @@ spring:
     compose:
       lifecycle-management: start-only
 
+  data:
+    web:
+      pageable:
+        max-page-size: 100
+
 management:
   endpoints:
     web:
