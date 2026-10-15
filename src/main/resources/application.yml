@@ -27,6 +27,7 @@ spring:
     web:
       pageable:
         max-page-size: 100
+        serialization-mode: via-dto
 
 management:
   endpoints:

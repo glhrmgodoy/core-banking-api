@@ -3,6 +3,7 @@ package com.godoy.corebanking.exception;
 import lombok.extern.slf4j.Slf4j;
 import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.core.PropertyReferenceException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -56,6 +57,12 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     ProblemDetail handleUnexpected(Exception ex) {
         log.error("Erro inesperado", ex);
         return problem(HttpStatus.INTERNAL_SERVER_ERROR, "Erro interno", "Ocorreu um erro inesperado");
+    }
+
+    @ExceptionHandler(PropertyReferenceException.class)
+    ProblemDetail handleInvalidSort(PropertyReferenceException ex) {
+        return problem(HttpStatus.BAD_REQUEST, "Parâmetro inválido",
+                "Não é possível ordenar por '%s'".formatted(ex.getPropertyName()));
     }
 
     @Override
