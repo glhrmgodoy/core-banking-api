@@ -26,7 +26,8 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     private static final Map<String, String> UNIQUE_CONSTRAINT_MESSAGES = Map.of(
             "uk_customers_cpf", "CPF já cadastrado",
             "uk_customers_email", "E-mail já cadastrado",
-            "uk_customers_external_id", "Usuário já vinculado a outro cliente"
+            "uk_customers_external_id", "Usuário já vinculado a outro cliente",
+            "uk_accounts_customer_type_open", "Cliente já possui conta aberta deste tipo"
     );
 
     @ExceptionHandler(ResourceNotFoundException.class)
