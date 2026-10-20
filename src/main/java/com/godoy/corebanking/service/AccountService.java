@@ -12,6 +12,7 @@ import com.godoy.corebanking.dto.response.BalanceResponse;
 import com.godoy.corebanking.dto.response.LedgerEntryResponse;
 import com.godoy.corebanking.exception.BusinessRuleException;
 import com.godoy.corebanking.exception.ConflictException;
+import com.godoy.corebanking.exception.InvalidRequestException;
 import com.godoy.corebanking.exception.ResourceNotFoundException;
 import com.godoy.corebanking.mapper.AccountMapper;
 import com.godoy.corebanking.mapper.LedgerEntryMapper;
@@ -19,18 +20,26 @@ import com.godoy.corebanking.repository.AccountRepository;
 import com.godoy.corebanking.repository.CustomerRepository;
 import com.godoy.corebanking.repository.LedgerEntryRepository;
 import com.godoy.corebanking.util.AccountNumberUtils;
+import com.godoy.corebanking.util.BusinessDate;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class AccountService {
+
+    private static final int DEFAULT_PERIOD_DAYS = 30;
+    private static final int MAX_PERIOD_DAYS = 90;
 
     private final AccountRepository accountRepository;
     private final CustomerRepository customerRepository;
@@ -101,6 +110,30 @@ public class AccountService {
         LedgerEntry saved = ledgerEntryRepository.save(entry);
 
         return ledgerEntryMapper.toResponse(saved);
+    }
+
+    public Page<LedgerEntryResponse> statement(UUID id, LocalDate from, LocalDate to, Pageable pageable) {
+        if (!accountRepository.existsById(id)) {
+            throw new ResourceNotFoundException("Conta", id);
+        }
+
+        LocalDate end = (to != null) ? to : BusinessDate.today(clock);
+        LocalDate start = (from != null) ? from : end.minusDays(DEFAULT_PERIOD_DAYS - 1);
+
+        if (start.isAfter(end)) {
+            throw new InvalidRequestException("Data inicial deve ser anterior ou igual à data final");
+        }
+
+        if (ChronoUnit.DAYS.between(start, end) + 1 > MAX_PERIOD_DAYS) {
+            throw new InvalidRequestException("Período máximo do extrato é de %d dias".formatted(MAX_PERIOD_DAYS));
+        }
+
+        return ledgerEntryRepository.findByAccountIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(
+                        id,
+                        BusinessDate.startOfDay(start),
+                        BusinessDate.startOfDay(end.plusDays(1)),
+                        pageable)
+                .map(ledgerEntryMapper::toResponse);
     }
 
     private Account findAccount(UUID id) {

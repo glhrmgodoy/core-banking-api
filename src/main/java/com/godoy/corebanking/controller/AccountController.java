@@ -8,12 +8,17 @@ import com.godoy.corebanking.dto.response.LedgerEntryResponse;
 import com.godoy.corebanking.service.AccountService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 import java.net.URI;
+import java.time.LocalDate;
 import java.util.UUID;
 
 @RestController
@@ -62,5 +67,15 @@ public class AccountController {
     ) {
         LedgerEntryResponse response = service.withdraw(id, request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    @GetMapping("/{id}/statement")
+    public ResponseEntity<Page<LedgerEntryResponse>> statement(
+            @PathVariable UUID id,
+            @RequestParam(required = false) LocalDate from,
+            @RequestParam(required = false) LocalDate to,
+            @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable
+    ) {
+        return ResponseEntity.ok(service.statement(id, from, to, pageable));
     }
 }

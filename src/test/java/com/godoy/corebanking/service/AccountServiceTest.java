@@ -9,6 +9,7 @@ import com.godoy.corebanking.domain.enums.EntryType;
 import com.godoy.corebanking.dto.request.MovementRequest;
 import com.godoy.corebanking.dto.response.BalanceResponse;
 import com.godoy.corebanking.exception.BusinessRuleException;
+import com.godoy.corebanking.exception.InvalidRequestException;
 import com.godoy.corebanking.exception.ResourceNotFoundException;
 import com.godoy.corebanking.mapper.AccountMapper;
 import com.godoy.corebanking.mapper.LedgerEntryMapper;
@@ -21,6 +22,9 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
@@ -36,6 +40,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -200,5 +205,100 @@ class AccountServiceTest {
 
         assertThatThrownBy(() -> service.getBalance(ACCOUNT_ID))
                 .isInstanceOf(ResourceNotFoundException.class);
+    }
+
+    private static final Pageable PAGE = PageRequest.of(0, 20);
+
+    private void accountExists() {
+        when(accountRepository.existsById(ACCOUNT_ID)).thenReturn(true);
+    }
+
+    private void repositoryReturnsEmptyPage() {
+        when(ledgerEntryRepository.findByAccountIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(
+                any(), any(), any(), any())).thenReturn(Page.empty());
+    }
+
+    private void verifyQueriedPeriod(String expectedStart, String expectedEnd) {
+        verify(ledgerEntryRepository).findByAccountIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(
+                ACCOUNT_ID, Instant.parse(expectedStart), Instant.parse(expectedEnd), PAGE);
+    }
+
+    @Test
+    void statementWithoutDatesShouldUseLast30DaysUntilToday() {
+        accountExists();
+        repositoryReturnsEmptyPage();
+
+        service.statement(ACCOUNT_ID, null, null, PAGE);
+
+        verifyQueriedPeriod("2026-09-21T03:00:00Z", "2026-10-21T03:00:00Z");
+    }
+
+    @Test
+    void statementWithOnlyFromShouldEndToday() {
+        accountExists();
+        repositoryReturnsEmptyPage();
+
+        service.statement(ACCOUNT_ID, LocalDate.of(2026, 10, 1), null, PAGE);
+
+        verifyQueriedPeriod("2026-10-01T03:00:00Z", "2026-10-21T03:00:00Z");
+    }
+
+    @Test
+    void statementWithOnlyToShouldStart30DaysBefore() {
+        accountExists();
+        repositoryReturnsEmptyPage();
+
+        service.statement(ACCOUNT_ID, null, LocalDate.of(2026, 8, 31), PAGE);
+
+        verifyQueriedPeriod("2026-08-02T03:00:00Z", "2026-09-01T03:00:00Z");
+    }
+
+    @Test
+    void statementOfSingleDayShouldCoverWholeDayInBrasilia() {
+        accountExists();
+        repositoryReturnsEmptyPage();
+
+        service.statement(ACCOUNT_ID, LocalDate.of(2026, 10, 15), LocalDate.of(2026, 10, 15), PAGE);
+
+        verifyQueriedPeriod("2026-10-15T03:00:00Z", "2026-10-16T03:00:00Z");
+    }
+
+    @Test
+    void statementShouldAcceptExactly90Days() {
+        accountExists();
+        repositoryReturnsEmptyPage();
+
+        service.statement(ACCOUNT_ID, LocalDate.of(2026, 7, 23), LocalDate.of(2026, 10, 20), PAGE);
+
+        verifyQueriedPeriod("2026-07-23T03:00:00Z", "2026-10-21T03:00:00Z");
+    }
+
+    @Test
+    void statementLongerThan90DaysShouldBeRejected() {
+        accountExists();
+
+        assertThatThrownBy(() -> service.statement(ACCOUNT_ID, LocalDate.of(2026, 7, 22), LocalDate.of(2026, 10, 20), PAGE))
+                .isInstanceOf(InvalidRequestException.class)
+                .hasMessage("Período máximo do extrato é de 90 dias");
+        verifyNoInteractions(ledgerEntryRepository);
+    }
+
+    @Test
+    void statementWithFromAfterToShouldBeRejected() {
+        accountExists();
+
+        assertThatThrownBy(() -> service.statement(ACCOUNT_ID, LocalDate.of(2026, 10, 20), LocalDate.of(2026, 10, 1), PAGE))
+                .isInstanceOf(InvalidRequestException.class)
+                .hasMessage("Data inicial deve ser anterior ou igual à data final");
+        verifyNoInteractions(ledgerEntryRepository);
+    }
+
+    @Test
+    void statementOfUnknownAccountShouldThrowNotFound() {
+        when(accountRepository.existsById(ACCOUNT_ID)).thenReturn(false);
+
+        assertThatThrownBy(() -> service.statement(ACCOUNT_ID, null, null, PAGE))
+                .isInstanceOf(ResourceNotFoundException.class);
+        verifyNoInteractions(ledgerEntryRepository);
     }
 }
