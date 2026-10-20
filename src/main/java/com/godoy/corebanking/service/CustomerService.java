@@ -9,6 +9,7 @@ import com.godoy.corebanking.exception.ConflictException;
 import com.godoy.corebanking.exception.ResourceNotFoundException;
 import com.godoy.corebanking.mapper.CustomerMapper;
 import com.godoy.corebanking.repository.CustomerRepository;
+import com.godoy.corebanking.util.BusinessDate;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -16,9 +17,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
-import java.time.LocalDate;
 import java.time.Period;
-import java.time.ZoneId;
 import java.util.UUID;
 
 @Service
@@ -26,15 +25,13 @@ import java.util.UUID;
 @Transactional(readOnly = true)
 public class CustomerService {
 
-    private static final ZoneId BRAZIL = ZoneId.of("America/Sao_Paulo");
-
     private final CustomerRepository repository;
     private final CustomerMapper mapper;
     private final Clock clock;
 
     @Transactional
     public CustomerResponse register(CustomerRequest request) {
-        if (Period.between(request.birthDate(), today()).getYears() < 18) {
+        if (Period.between(request.birthDate(), BusinessDate.today(clock)).getYears() < 18) {
             throw new BusinessRuleException("Cliente deve ter 18 anos ou mais");
         }
 
@@ -76,10 +73,6 @@ public class CustomerService {
     public void deactivate(UUID id) {
         Customer customer = findCustomer(id);
         customer.deactivate();
-    }
-
-    private LocalDate today() {
-        return LocalDate.now(clock.withZone(BRAZIL));
     }
 
     private Customer findCustomer(UUID id) {
