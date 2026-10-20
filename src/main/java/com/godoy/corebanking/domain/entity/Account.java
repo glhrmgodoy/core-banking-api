@@ -2,6 +2,9 @@ package com.godoy.corebanking.domain.entity;
 
 import com.godoy.corebanking.domain.enums.AccountStatus;
 import com.godoy.corebanking.domain.enums.AccountType;
+import com.godoy.corebanking.domain.enums.EntryCategory;
+import com.godoy.corebanking.domain.enums.EntryType;
+import com.godoy.corebanking.exception.BusinessRuleException;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -77,5 +80,52 @@ public class Account {
         this.dailyTransferLimit = DEFAULT_DAILY_LIMIT;
         this.nightTransferLimit = DEFAULT_NIGHT_LIMIT;
         this.status = AccountStatus.ACTIVE;
+    }
+
+    public LedgerEntry credit(BigDecimal amount, EntryCategory category, String description) {
+        validateMovement(amount);
+
+        balance = balance.add(amount);
+
+        return new LedgerEntry(this,
+                EntryType.CREDIT,
+                category,
+                amount,
+                balance,
+                description
+        );
+    }
+
+    public LedgerEntry debit(BigDecimal amount, EntryCategory category, String description) {
+        validateMovement(amount);
+
+        if (balance.compareTo(amount) < 0) {
+            throw new BusinessRuleException("Saldo insuficiente para realizar esta operação");
+        }
+
+        balance = balance.subtract(amount);
+
+        return new LedgerEntry(
+                this,
+                EntryType.DEBIT,
+                category,
+                amount,
+                balance,
+                description
+        );
+    }
+
+    private void validateMovement(BigDecimal amount) {
+        if (status != AccountStatus.ACTIVE) {
+            throw new BusinessRuleException("Conta %s não permite movimentação".formatted(status));
+        }
+
+        if (amount.scale() > 2) {
+            throw new BusinessRuleException("Valor deve ter no máximo 2 casas decimais");
+        }
+
+        if (amount.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BusinessRuleException("Valor deve ser maior que zero");
+        }
     }
 }

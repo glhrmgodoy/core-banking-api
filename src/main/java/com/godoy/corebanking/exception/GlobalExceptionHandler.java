@@ -3,6 +3,7 @@ package com.godoy.corebanking.exception;
 import lombok.extern.slf4j.Slf4j;
 import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.data.core.PropertyReferenceException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -52,6 +53,13 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
             detail = UNIQUE_CONSTRAINT_MESSAGES.getOrDefault(cve.getConstraintName().toLowerCase(Locale.ROOT), detail);
         }
         return problem(HttpStatus.CONFLICT, "Conflito", detail);
+    }
+
+    @ExceptionHandler(OptimisticLockingFailureException.class)
+    ProblemDetail handleOptimisticLock(OptimisticLockingFailureException ex) {
+        log.warn("Conflito de concorrência: {}", ex.getMessage());
+        return problem(HttpStatus.CONFLICT, "Conflito de concorrência",
+                "A conta foi alterada por outra operação, tente novamente");
     }
 
     @ExceptionHandler(Exception.class)
