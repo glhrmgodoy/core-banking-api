@@ -14,6 +14,7 @@ import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -76,7 +77,7 @@ public class Account {
         this.type = type;
         this.number = number;
         this.agency = DEFAULT_AGENCY;
-        this.balance = BigDecimal.ZERO.setScale(2);
+        this.balance = BigDecimal.ZERO.setScale(2, RoundingMode.UNNECESSARY);
         this.dailyTransferLimit = DEFAULT_DAILY_LIMIT;
         this.nightTransferLimit = DEFAULT_NIGHT_LIMIT;
         this.status = AccountStatus.ACTIVE;
@@ -90,7 +91,7 @@ public class Account {
         return new LedgerEntry(this,
                 EntryType.CREDIT,
                 category,
-                amount,
+                amount.setScale(2, RoundingMode.UNNECESSARY),
                 balance,
                 description
         );
@@ -109,23 +110,81 @@ public class Account {
                 this,
                 EntryType.DEBIT,
                 category,
-                amount,
+                amount.setScale(2, RoundingMode.UNNECESSARY),
                 balance,
                 description
         );
+    }
+
+    public void changeLimits(BigDecimal daily, BigDecimal night) {
+        ensureNotClosed();
+
+        validateAmount(daily, "Limite diário");
+        validateAmount(night, "Limite noturno");
+
+        if (night.compareTo(daily) > 0) {
+            throw new BusinessRuleException("Limite noturno não pode ser maior que o diário");
+        }
+
+        this.dailyTransferLimit = daily.setScale(2, RoundingMode.UNNECESSARY);
+        this.nightTransferLimit = night.setScale(2, RoundingMode.UNNECESSARY);
+    }
+
+    public void block() {
+        ensureNotClosed();
+
+        if (status == AccountStatus.BLOCKED) {
+            return;
+        }
+
+        status = AccountStatus.BLOCKED;
+    }
+
+    public void unblock() {
+        ensureNotClosed();
+
+        if (status == AccountStatus.ACTIVE) {
+            return;
+        }
+
+        status = AccountStatus.ACTIVE;
+    }
+
+    public void close() {
+        if (status == AccountStatus.CLOSED) {
+            return;
+        }
+
+        if (status == AccountStatus.BLOCKED) {
+            throw new BusinessRuleException("Conta bloqueada não pode ser encerrada; desbloqueie antes");
+        }
+
+        if (balance.signum() != 0) {
+            throw new BusinessRuleException("Conta com saldo não pode ser encerrada");
+        }
+
+        status = AccountStatus.CLOSED;
     }
 
     private void validateMovement(BigDecimal amount) {
         if (status != AccountStatus.ACTIVE) {
             throw new BusinessRuleException("Conta %s não permite movimentação".formatted(status));
         }
+        validateAmount(amount, "Valor");
+    }
 
+    private void validateAmount(BigDecimal amount, String field) {
         if (amount.scale() > 2) {
-            throw new BusinessRuleException("Valor deve ter no máximo 2 casas decimais");
+            throw new BusinessRuleException("%s deve ter no máximo 2 casas decimais".formatted(field));
         }
-
         if (amount.compareTo(BigDecimal.ZERO) <= 0) {
-            throw new BusinessRuleException("Valor deve ser maior que zero");
+            throw new BusinessRuleException("%s deve ser maior que zero".formatted(field));
+        }
+    }
+
+    private void ensureNotClosed() {
+        if (status == AccountStatus.CLOSED) {
+            throw new BusinessRuleException("Conta encerrada não pode ser alterada");
         }
     }
 }

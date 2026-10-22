@@ -8,7 +8,6 @@ import com.godoy.corebanking.exception.BusinessRuleException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -106,8 +105,7 @@ class AccountTest {
     @Test
     void blockedAccountShouldNotMoveBalance() {
         Account account = newAccountWithBalance("100.00");
-        // Até existir o block() (bloco 4 da etapa 3).
-        ReflectionTestUtils.setField(account, "status", AccountStatus.BLOCKED);
+        account.block();
 
         assertThatThrownBy(() -> account.credit(new BigDecimal("10.00"), EntryCategory.DEPOSIT, "Depósito"))
                 .isInstanceOf(BusinessRuleException.class)
@@ -116,5 +114,203 @@ class AccountTest {
                 .isInstanceOf(BusinessRuleException.class)
                 .hasMessage("Conta BLOCKED não permite movimentação");
         assertThat(account.getBalance()).isEqualByComparingTo("100.00");
+    }
+
+    // Limites
+
+    @Test
+    void changeLimitsShouldUpdateBothLimits() {
+        Account account = newAccount();
+
+        account.changeLimits(new BigDecimal("8000.00"), new BigDecimal("500.00"));
+
+        assertThat(account.getDailyTransferLimit()).isEqualByComparingTo("8000.00");
+        assertThat(account.getNightTransferLimit()).isEqualByComparingTo("500.00");
+    }
+
+    @Test
+    void changeLimitsShouldAcceptNightEqualToDaily() {
+        Account account = newAccount();
+
+        account.changeLimits(new BigDecimal("2000.00"), new BigDecimal("2000.00"));
+
+        assertThat(account.getNightTransferLimit()).isEqualByComparingTo("2000.00");
+    }
+
+    @Test
+    void changeLimitsShouldRejectNightGreaterThanDaily() {
+        Account account = newAccount();
+
+        assertThatThrownBy(() -> account.changeLimits(new BigDecimal("1000.00"), new BigDecimal("1000.01")))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessage("Limite noturno não pode ser maior que o diário");
+        assertDefaultLimits(account);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"0", "-1.00"})
+    void changeLimitsShouldRejectNonPositiveValues(String value) {
+        Account account = newAccount();
+
+        assertThatThrownBy(() -> account.changeLimits(new BigDecimal(value), new BigDecimal("100.00")))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessage("Limite diário deve ser maior que zero");
+        assertThatThrownBy(() -> account.changeLimits(new BigDecimal("100.00"), new BigDecimal(value)))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessage("Limite noturno deve ser maior que zero");
+        assertDefaultLimits(account);
+    }
+
+    @Test
+    void changeLimitsShouldRejectMoreThanTwoDecimals() {
+        Account account = newAccount();
+
+        assertThatThrownBy(() -> account.changeLimits(new BigDecimal("100.001"), new BigDecimal("50.00")))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessage("Limite diário deve ter no máximo 2 casas decimais");
+        assertDefaultLimits(account);
+    }
+
+    @Test
+    void blockedAccountCanChangeLimits() {
+        Account account = newAccount();
+        account.block();
+
+        account.changeLimits(new BigDecimal("3000.00"), new BigDecimal("300.00"));
+
+        assertThat(account.getDailyTransferLimit()).isEqualByComparingTo("3000.00");
+    }
+
+    @Test
+    void closedAccountCannotChangeLimits() {
+        Account account = newAccount();
+        account.close();
+
+        assertThatThrownBy(() -> account.changeLimits(new BigDecimal("3000.00"), new BigDecimal("300.00")))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessage("Conta encerrada não pode ser alterada");
+        assertDefaultLimits(account);
+    }
+
+    private void assertDefaultLimits(Account account) {
+        assertThat(account.getDailyTransferLimit()).isEqualByComparingTo("5000.00");
+        assertThat(account.getNightTransferLimit()).isEqualByComparingTo("1000.00");
+    }
+
+    // Bloqueio e desbloqueio
+
+    @Test
+    void blockShouldChangeStatusToBlocked() {
+        Account account = newAccount();
+
+        account.block();
+
+        assertThat(account.getStatus()).isEqualTo(AccountStatus.BLOCKED);
+    }
+
+    @Test
+    void blockShouldBeIdempotent() {
+        Account account = newAccount();
+        account.block();
+
+        account.block();
+
+        assertThat(account.getStatus()).isEqualTo(AccountStatus.BLOCKED);
+    }
+
+    @Test
+    void unblockShouldChangeStatusToActive() {
+        Account account = newAccount();
+        account.block();
+
+        account.unblock();
+
+        assertThat(account.getStatus()).isEqualTo(AccountStatus.ACTIVE);
+    }
+
+    @Test
+    void unblockShouldBeIdempotent() {
+        Account account = newAccount();
+
+        account.unblock();
+
+        assertThat(account.getStatus()).isEqualTo(AccountStatus.ACTIVE);
+    }
+
+    @Test
+    void unblockedAccountShouldMoveBalanceAgain() {
+        Account account = newAccount();
+        account.block();
+        account.unblock();
+
+        account.credit(new BigDecimal("10.00"), EntryCategory.DEPOSIT, "Depósito");
+
+        assertThat(account.getBalance()).isEqualByComparingTo("10.00");
+    }
+
+    @Test
+    void closedAccountCannotBeBlockedOrUnblocked() {
+        Account account = newAccount();
+        account.close();
+
+        assertThatThrownBy(account::block)
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessage("Conta encerrada não pode ser alterada");
+        assertThatThrownBy(account::unblock)
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessage("Conta encerrada não pode ser alterada");
+        assertThat(account.getStatus()).isEqualTo(AccountStatus.CLOSED);
+    }
+
+    // Encerramento
+
+    @Test
+    void closeShouldChangeStatusToClosedWhenBalanceIsZero() {
+        Account account = newAccount();
+
+        account.close();
+
+        assertThat(account.getStatus()).isEqualTo(AccountStatus.CLOSED);
+    }
+
+    @Test
+    void closeShouldBeIdempotent() {
+        Account account = newAccount();
+        account.close();
+
+        account.close();
+
+        assertThat(account.getStatus()).isEqualTo(AccountStatus.CLOSED);
+    }
+
+    @Test
+    void closeShouldFailWhenBalanceIsNotZero() {
+        Account account = newAccountWithBalance("0.01");
+
+        assertThatThrownBy(account::close)
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessage("Conta com saldo não pode ser encerrada");
+        assertThat(account.getStatus()).isEqualTo(AccountStatus.ACTIVE);
+    }
+
+    @Test
+    void blockedAccountWithZeroBalanceCannotBeClosed() {
+        Account account = newAccount();
+        account.block();
+
+        assertThatThrownBy(account::close)
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessage("Conta bloqueada não pode ser encerrada; desbloqueie antes");
+        assertThat(account.getStatus()).isEqualTo(AccountStatus.BLOCKED);
+    }
+
+    @Test
+    void closedAccountShouldNotMoveBalance() {
+        Account account = newAccount();
+        account.close();
+
+        assertThatThrownBy(() -> account.credit(new BigDecimal("10.00"), EntryCategory.DEPOSIT, "Depósito"))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessage("Conta CLOSED não permite movimentação");
     }
 }

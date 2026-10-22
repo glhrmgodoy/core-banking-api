@@ -1,5 +1,6 @@
 package com.godoy.corebanking.controller;
 
+import com.godoy.corebanking.dto.request.AccountLimitsRequest;
 import com.godoy.corebanking.dto.request.AccountOpenRequest;
 import com.godoy.corebanking.dto.request.MovementRequest;
 import com.godoy.corebanking.dto.response.AccountResponse;
@@ -77,5 +78,29 @@ public class AccountController {
             @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable
     ) {
         return ResponseEntity.ok(service.statement(id, from, to, pageable));
+    }
+
+    @PatchMapping("/{id}/limits")
+    public ResponseEntity<AccountResponse> changeLimits(
+            @PathVariable UUID id,
+            @RequestBody @Valid AccountLimitsRequest request
+    ) {
+        return ResponseEntity.ok(service.changeLimits(id, request));
+    }
+
+    @PatchMapping("/{id}/block")
+    public ResponseEntity<AccountResponse> block(@PathVariable UUID id) {
+        return ResponseEntity.ok(service.block(id));
+    }
+
+    @PatchMapping("/{id}/unblock")
+    public ResponseEntity<AccountResponse> unblock(@PathVariable UUID id) {
+        return ResponseEntity.ok(service.unblock(id));
+    }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> close(@PathVariable UUID id) {
+        service.close(id);
+        return ResponseEntity.noContent().build();
     }
 }

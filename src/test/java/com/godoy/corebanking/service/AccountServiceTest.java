@@ -3,9 +3,11 @@ package com.godoy.corebanking.service;
 import com.godoy.corebanking.domain.entity.Account;
 import com.godoy.corebanking.domain.entity.Customer;
 import com.godoy.corebanking.domain.entity.LedgerEntry;
+import com.godoy.corebanking.domain.enums.AccountStatus;
 import com.godoy.corebanking.domain.enums.AccountType;
 import com.godoy.corebanking.domain.enums.EntryCategory;
 import com.godoy.corebanking.domain.enums.EntryType;
+import com.godoy.corebanking.dto.request.AccountLimitsRequest;
 import com.godoy.corebanking.dto.request.MovementRequest;
 import com.godoy.corebanking.dto.response.BalanceResponse;
 import com.godoy.corebanking.exception.BusinessRuleException;
@@ -300,5 +302,100 @@ class AccountServiceTest {
         assertThatThrownBy(() -> service.statement(ACCOUNT_ID, null, null, PAGE))
                 .isInstanceOf(ResourceNotFoundException.class);
         verifyNoInteractions(ledgerEntryRepository);
+    }
+
+    // Limites, bloqueio e encerramento: as regras estão no AccountTest; aqui se prova a ligação
+    // (conta certa, método certo da entidade, resposta montada a partir da conta).
+
+    private void accountNotFound() {
+        when(accountRepository.findById(ACCOUNT_ID)).thenReturn(Optional.empty());
+    }
+
+    @Test
+    void changeLimitsShouldUpdateAccountAndReturnIt() {
+        Account account = accountWithBalance("0");
+
+        service.changeLimits(ACCOUNT_ID, new AccountLimitsRequest(new BigDecimal("8000.00"), new BigDecimal("500.00")));
+
+        assertThat(account.getDailyTransferLimit()).isEqualByComparingTo("8000.00");
+        assertThat(account.getNightTransferLimit()).isEqualByComparingTo("500.00");
+        verify(accountMapper).toResponse(account);
+    }
+
+    @Test
+    void changeLimitsWithNightGreaterThanDailyShouldBeRejected() {
+        Account account = accountWithBalance("0");
+
+        assertThatThrownBy(() -> service.changeLimits(ACCOUNT_ID,
+                new AccountLimitsRequest(new BigDecimal("1000.00"), new BigDecimal("2000.00"))))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessage("Limite noturno não pode ser maior que o diário");
+        assertThat(account.getDailyTransferLimit()).isEqualByComparingTo("5000.00");
+        verifyNoInteractions(accountMapper);
+    }
+
+    @Test
+    void changeLimitsOfUnknownAccountShouldThrowNotFound() {
+        accountNotFound();
+
+        assertThatThrownBy(() -> service.changeLimits(ACCOUNT_ID,
+                new AccountLimitsRequest(new BigDecimal("8000.00"), new BigDecimal("500.00"))))
+                .isInstanceOf(ResourceNotFoundException.class);
+    }
+
+    @Test
+    void blockShouldBlockAccountAndReturnIt() {
+        Account account = accountWithBalance("0");
+
+        service.block(ACCOUNT_ID);
+
+        assertThat(account.getStatus()).isEqualTo(AccountStatus.BLOCKED);
+        verify(accountMapper).toResponse(account);
+    }
+
+    @Test
+    void unblockShouldActivateAccountAndReturnIt() {
+        Account account = accountWithBalance("0");
+        account.block();
+
+        service.unblock(ACCOUNT_ID);
+
+        assertThat(account.getStatus()).isEqualTo(AccountStatus.ACTIVE);
+        verify(accountMapper).toResponse(account);
+    }
+
+    @Test
+    void blockAndUnblockOfUnknownAccountShouldThrowNotFound() {
+        accountNotFound();
+
+        assertThatThrownBy(() -> service.block(ACCOUNT_ID)).isInstanceOf(ResourceNotFoundException.class);
+        assertThatThrownBy(() -> service.unblock(ACCOUNT_ID)).isInstanceOf(ResourceNotFoundException.class);
+    }
+
+    @Test
+    void closeShouldCloseAccountWithZeroBalance() {
+        Account account = accountWithBalance("0");
+
+        service.close(ACCOUNT_ID);
+
+        assertThat(account.getStatus()).isEqualTo(AccountStatus.CLOSED);
+    }
+
+    @Test
+    void closeWithBalanceShouldBeRejectedAndKeepAccountActive() {
+        Account account = accountWithBalance("10.00");
+
+        assertThatThrownBy(() -> service.close(ACCOUNT_ID))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessage("Conta com saldo não pode ser encerrada");
+        assertThat(account.getStatus()).isEqualTo(AccountStatus.ACTIVE);
+    }
+
+    @Test
+    void closeOfUnknownAccountShouldThrowNotFound() {
+        accountNotFound();
+
+        assertThatThrownBy(() -> service.close(ACCOUNT_ID))
+                .isInstanceOf(ResourceNotFoundException.class);
     }
 }

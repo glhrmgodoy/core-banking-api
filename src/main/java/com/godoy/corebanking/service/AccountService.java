@@ -5,6 +5,7 @@ import com.godoy.corebanking.domain.entity.Customer;
 import com.godoy.corebanking.domain.entity.LedgerEntry;
 import com.godoy.corebanking.domain.enums.AccountStatus;
 import com.godoy.corebanking.domain.enums.EntryCategory;
+import com.godoy.corebanking.dto.request.AccountLimitsRequest;
 import com.godoy.corebanking.dto.request.AccountOpenRequest;
 import com.godoy.corebanking.dto.request.MovementRequest;
 import com.godoy.corebanking.dto.response.AccountResponse;
@@ -27,6 +28,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -134,6 +136,36 @@ public class AccountService {
                         BusinessDate.startOfDay(end.plusDays(1)),
                         pageable)
                 .map(ledgerEntryMapper::toResponse);
+    }
+
+    @Transactional
+    public AccountResponse changeLimits(UUID id, AccountLimitsRequest request) {
+        Account account = findAccount(id);
+
+        account.changeLimits(request.dailyTransferLimit(), request.nightTransferLimit());
+        return accountMapper.toResponse(account);
+    }
+
+    @Transactional
+    public AccountResponse block(UUID id) {
+        Account account = findAccount(id);
+
+        account.block();
+        return accountMapper.toResponse(account);
+    }
+
+    @Transactional
+    public AccountResponse unblock(UUID id) {
+        Account account = findAccount(id);
+
+        account.unblock();
+        return accountMapper.toResponse(account);
+    }
+
+    @Transactional
+    public void close(UUID id) {
+        Account account = findAccount(id);
+        account.close();
     }
 
     private Account findAccount(UUID id) {
