@@ -69,6 +69,10 @@ public class Customer {
     }
 
     public void deactivate() {
-        this.active = false;
+        if (!active) {
+            return;
+        }
+
+        active = false;
     }
 }
