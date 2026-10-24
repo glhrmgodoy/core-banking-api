@@ -4,13 +4,17 @@ import com.godoy.corebanking.domain.enums.AccountStatus;
 import com.godoy.corebanking.domain.enums.AccountType;
 import com.godoy.corebanking.domain.enums.EntryCategory;
 import com.godoy.corebanking.domain.enums.EntryType;
+import com.godoy.corebanking.domain.enums.PixKeyType;
 import com.godoy.corebanking.exception.BusinessRuleException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -312,5 +316,110 @@ class AccountTest {
         assertThatThrownBy(() -> account.credit(new BigDecimal("10.00"), EntryCategory.DEPOSIT, "Depósito"))
                 .isInstanceOf(BusinessRuleException.class)
                 .hasMessage("Conta CLOSED não permite movimentação");
+    }
+
+    // Chaves PIX
+
+    @ParameterizedTest
+    @CsvSource({
+            "CPF, 52998224725",
+            "EMAIL, ana@email.com",
+            "PHONE, +5511999999999"
+    })
+    void registerPixKeyShouldCreateActiveKeyWhenValueMatchesHolder(PixKeyType type, String value) {
+        Account account = newAccount();
+
+        PixKey key = account.registerPixKey(type, value);
+
+        assertThat(key.getAccount()).isSameAs(account);
+        assertThat(key.getKeyType()).isEqualTo(type);
+        assertThat(key.getKeyValue()).isEqualTo(value);
+        assertThat(key.isActive()).isTrue();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", "qualquer-valor"})
+    void registerRandomPixKeyShouldGenerateUuidIgnoringValue(String value) {
+        Account account = newAccount();
+
+        PixKey key = account.registerPixKey(PixKeyType.RANDOM, value);
+
+        assertThat(key.getKeyType()).isEqualTo(PixKeyType.RANDOM);
+        assertThat(key.getKeyValue()).isNotEqualTo(value);
+        assertThat(UUID.fromString(key.getKeyValue()).toString()).isEqualTo(key.getKeyValue());
+    }
+
+    @Test
+    void registerRandomPixKeyShouldAcceptNullValue() {
+        Account account = newAccount();
+
+        PixKey key = account.registerPixKey(PixKeyType.RANDOM, null);
+
+        assertThat(key.getKeyValue()).isNotNull();
+    }
+
+    @Test
+    void registerRandomPixKeyShouldGenerateDifferentValuesEachTime() {
+        Account account = newAccount();
+
+        PixKey first = account.registerPixKey(PixKeyType.RANDOM, null);
+        PixKey second = account.registerPixKey(PixKeyType.RANDOM, null);
+
+        assertThat(first.getKeyValue()).isNotEqualTo(second.getKeyValue());
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "CPF, 11144477735",
+            "EMAIL, outro@email.com",
+            "PHONE, +5511988888888"
+    })
+    void registerPixKeyShouldFailWhenValueDoesNotMatchHolder(PixKeyType type, String value) {
+        Account account = newAccount();
+
+        assertThatThrownBy(() -> account.registerPixKey(type, value))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessage("Chave %s deve ser igual ao dado do titular da conta".formatted(type));
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = PixKeyType.class, names = {"CPF", "EMAIL", "PHONE"})
+    void registerPixKeyShouldFailWithBusinessErrorWhenValueIsNull(PixKeyType type) {
+        Account account = newAccount();
+
+        assertThatThrownBy(() -> account.registerPixKey(type, null))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessage("Chave %s deve ser igual ao dado do titular da conta".formatted(type));
+    }
+
+    @ParameterizedTest
+    @EnumSource(PixKeyType.class)
+    void blockedAccountCannotRegisterPixKey(PixKeyType type) {
+        Account account = newAccount();
+        account.block();
+
+        assertThatThrownBy(() -> account.registerPixKey(type, "ana@email.com"))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessage("Conta BLOCKED não permite cadastrar chave PIX");
+    }
+
+    @Test
+    void closedAccountCannotRegisterPixKey() {
+        Account account = newAccount();
+        account.close();
+
+        assertThatThrownBy(() -> account.registerPixKey(PixKeyType.EMAIL, "ana@email.com"))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessage("Conta CLOSED não permite cadastrar chave PIX");
+    }
+
+    @Test
+    void accountStatusShouldBeCheckedBeforeHolderData() {
+        Account account = newAccount();
+        account.block();
+
+        assertThatThrownBy(() -> account.registerPixKey(PixKeyType.CPF, "11144477735"))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessage("Conta BLOCKED não permite cadastrar chave PIX");
     }
 }

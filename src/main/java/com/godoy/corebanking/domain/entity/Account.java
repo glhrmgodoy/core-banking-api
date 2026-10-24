@@ -1,9 +1,6 @@
 package com.godoy.corebanking.domain.entity;
 
-import com.godoy.corebanking.domain.enums.AccountStatus;
-import com.godoy.corebanking.domain.enums.AccountType;
-import com.godoy.corebanking.domain.enums.EntryCategory;
-import com.godoy.corebanking.domain.enums.EntryType;
+import com.godoy.corebanking.domain.enums.*;
 import com.godoy.corebanking.exception.BusinessRuleException;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
@@ -16,6 +13,7 @@ import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
+import java.util.Objects;
 import java.util.UUID;
 
 @Entity
@@ -166,6 +164,22 @@ public class Account {
         status = AccountStatus.CLOSED;
     }
 
+    public PixKey registerPixKey(PixKeyType type, String value) {
+        if (status != AccountStatus.ACTIVE) {
+            throw new BusinessRuleException("Conta %s não permite cadastrar chave PIX".formatted(status));
+        }
+
+        if (type != PixKeyType.RANDOM) {
+            String holder = holderValue(type);
+            if (!Objects.equals(holder, value)) {
+                throw new BusinessRuleException(
+                        "Chave %s deve ser igual ao dado do titular da conta".formatted(type));
+            }
+        }
+
+        return new PixKey(this, type, value);
+    }
+
     private void validateMovement(BigDecimal amount) {
         if (status != AccountStatus.ACTIVE) {
             throw new BusinessRuleException("Conta %s não permite movimentação".formatted(status));
@@ -186,5 +200,14 @@ public class Account {
         if (status == AccountStatus.CLOSED) {
             throw new BusinessRuleException("Conta encerrada não pode ser alterada");
         }
+    }
+
+    private String holderValue(PixKeyType type) {
+        return switch (type) {
+            case CPF -> customer.getCpf();
+            case EMAIL -> customer.getEmail();
+            case PHONE -> customer.getPhone();
+            case RANDOM -> null;
+        };
     }
 }
