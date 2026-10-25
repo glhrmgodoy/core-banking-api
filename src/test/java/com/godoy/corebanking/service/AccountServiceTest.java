@@ -3,10 +3,12 @@ package com.godoy.corebanking.service;
 import com.godoy.corebanking.domain.entity.Account;
 import com.godoy.corebanking.domain.entity.Customer;
 import com.godoy.corebanking.domain.entity.LedgerEntry;
+import com.godoy.corebanking.domain.entity.PixKey;
 import com.godoy.corebanking.domain.enums.AccountStatus;
 import com.godoy.corebanking.domain.enums.AccountType;
 import com.godoy.corebanking.domain.enums.EntryCategory;
 import com.godoy.corebanking.domain.enums.EntryType;
+import com.godoy.corebanking.domain.enums.PixKeyType;
 import com.godoy.corebanking.dto.request.AccountLimitsRequest;
 import com.godoy.corebanking.dto.request.MovementRequest;
 import com.godoy.corebanking.dto.response.BalanceResponse;
@@ -18,6 +20,7 @@ import com.godoy.corebanking.mapper.LedgerEntryMapper;
 import com.godoy.corebanking.repository.AccountRepository;
 import com.godoy.corebanking.repository.CustomerRepository;
 import com.godoy.corebanking.repository.LedgerEntryRepository;
+import com.godoy.corebanking.repository.PixKeyRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -34,6 +37,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -61,6 +65,9 @@ class AccountServiceTest {
     private LedgerEntryRepository ledgerEntryRepository;
 
     @Mock
+    private PixKeyRepository pixKeyRepository;
+
+    @Mock
     private AccountMapper accountMapper;
 
     @Mock
@@ -72,7 +79,7 @@ class AccountServiceTest {
     void setUp() {
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
         service = new AccountService(accountRepository, customerRepository,
-                ledgerEntryRepository, accountMapper, ledgerEntryMapper, clock);
+                ledgerEntryRepository, pixKeyRepository, accountMapper, ledgerEntryMapper, clock);
     }
 
     private Account accountWithBalance(String balance) {
@@ -382,6 +389,20 @@ class AccountServiceTest {
     }
 
     @Test
+    void closeShouldDeactivateActivePixKeys() {
+        Account account = accountWithBalance("0");
+        PixKey cpf = account.registerPixKey(PixKeyType.CPF, "52998224725");
+        PixKey email = account.registerPixKey(PixKeyType.EMAIL, "ana@email.com");
+        when(pixKeyRepository.findByAccountIdAndActiveTrueOrderByCreatedAtAsc(ACCOUNT_ID)).thenReturn(List.of(cpf, email));
+
+        service.close(ACCOUNT_ID);
+
+        assertThat(account.getStatus()).isEqualTo(AccountStatus.CLOSED);
+        assertThat(cpf.isActive()).isFalse();
+        assertThat(email.isActive()).isFalse();
+    }
+
+    @Test
     void closeWithBalanceShouldBeRejectedAndKeepAccountActive() {
         Account account = accountWithBalance("10.00");
 
@@ -389,6 +410,7 @@ class AccountServiceTest {
                 .isInstanceOf(BusinessRuleException.class)
                 .hasMessage("Conta com saldo não pode ser encerrada");
         assertThat(account.getStatus()).isEqualTo(AccountStatus.ACTIVE);
+        verifyNoInteractions(pixKeyRepository);
     }
 
     @Test

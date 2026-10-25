@@ -3,6 +3,7 @@ package com.godoy.corebanking.service;
 import com.godoy.corebanking.domain.entity.Account;
 import com.godoy.corebanking.domain.entity.Customer;
 import com.godoy.corebanking.domain.entity.LedgerEntry;
+import com.godoy.corebanking.domain.entity.PixKey;
 import com.godoy.corebanking.domain.enums.AccountStatus;
 import com.godoy.corebanking.domain.enums.EntryCategory;
 import com.godoy.corebanking.dto.request.AccountLimitsRequest;
@@ -20,6 +21,7 @@ import com.godoy.corebanking.mapper.LedgerEntryMapper;
 import com.godoy.corebanking.repository.AccountRepository;
 import com.godoy.corebanking.repository.CustomerRepository;
 import com.godoy.corebanking.repository.LedgerEntryRepository;
+import com.godoy.corebanking.repository.PixKeyRepository;
 import com.godoy.corebanking.util.AccountNumberUtils;
 import com.godoy.corebanking.util.BusinessDate;
 import lombok.RequiredArgsConstructor;
@@ -46,6 +48,7 @@ public class AccountService {
     private final AccountRepository accountRepository;
     private final CustomerRepository customerRepository;
     private final LedgerEntryRepository ledgerEntryRepository;
+    private final PixKeyRepository pixKeyRepository;
     private final AccountMapper accountMapper;
     private final LedgerEntryMapper ledgerEntryMapper;
     private final Clock clock;
@@ -166,8 +169,9 @@ public class AccountService {
     public void close(UUID id) {
         Account account = findAccount(id);
         account.close();
+        pixKeyRepository.findByAccountIdAndActiveTrueOrderByCreatedAtAsc(id)
+                .forEach(PixKey::deactivate);
     }
-
     private Account findAccount(UUID id) {
         return accountRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Conta", id));

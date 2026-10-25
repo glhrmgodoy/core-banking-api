@@ -28,7 +28,8 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
             "uk_customers_cpf", "CPF já cadastrado",
             "uk_customers_email", "E-mail já cadastrado",
             "uk_customers_external_id", "Usuário já vinculado a outro cliente",
-            "uk_accounts_customer_type_open", "Cliente já possui conta aberta deste tipo"
+            "uk_accounts_customer_type_open", "Cliente já possui conta aberta deste tipo",
+            "uk_pix_keys_key_value_active", "Chave PIX já cadastrada"
     );
 
     @ExceptionHandler(ResourceNotFoundException.class)
