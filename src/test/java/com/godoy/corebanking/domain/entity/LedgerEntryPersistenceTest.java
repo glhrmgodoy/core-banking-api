@@ -13,6 +13,8 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
@@ -54,7 +56,7 @@ class LedgerEntryPersistenceTest {
     @Test
     void shouldPersistLedgerEntry() {
         LedgerEntry saved = ledgerEntryRepository.saveAndFlush(new LedgerEntry(
-                account, EntryType.CREDIT, EntryCategory.DEPOSIT,
+                account, null, EntryType.CREDIT, EntryCategory.DEPOSIT,
                 new BigDecimal("150.75"), new BigDecimal("150.75"), "Depósito"));
         entityManager.clear();
 
@@ -66,13 +68,14 @@ class LedgerEntryPersistenceTest {
         assertThat(found.getAmount()).isEqualByComparingTo("150.75");
         assertThat(found.getBalanceAfter()).isEqualByComparingTo("150.75");
         assertThat(found.getDescription()).isEqualTo("Depósito");
+        assertThat(found.getPixTransfer()).isNull();
         assertThat(found.getCreatedAt()).isNotNull();
     }
 
     @Test
     void databaseShouldRejectUpdateOfLedgerEntry() {
         LedgerEntry saved = ledgerEntryRepository.saveAndFlush(new LedgerEntry(
-                account, EntryType.CREDIT, EntryCategory.DEPOSIT,
+                account, null, EntryType.CREDIT, EntryCategory.DEPOSIT,
                 new BigDecimal("100.00"), new BigDecimal("100.00"), "Depósito"));
 
         assertThatThrownBy(() -> entityManager
@@ -87,9 +90,19 @@ class LedgerEntryPersistenceTest {
     @Test
     void databaseShouldRejectNonPositiveAmount() {
         assertThatThrownBy(() -> ledgerEntryRepository.saveAndFlush(new LedgerEntry(
-                account, EntryType.DEBIT, EntryCategory.WITHDRAWAL,
+                account, null, EntryType.DEBIT, EntryCategory.WITHDRAWAL,
                 BigDecimal.ZERO, new BigDecimal("100.00"), "Saque")))
                 .rootCause()
                 .hasMessageContaining("ck_ledger_entries_amount_positive");
+    }
+
+    @ParameterizedTest
+    @CsvSource({"CREDIT, PIX_IN", "DEBIT, PIX_OUT"})
+    void databaseShouldRejectPixEntryWithoutTransfer(EntryType type, EntryCategory category) {
+        assertThatThrownBy(() -> ledgerEntryRepository.saveAndFlush(new LedgerEntry(
+                account, null, type, category,
+                new BigDecimal("10.00"), new BigDecimal("10.00"), "PIX")))
+                .rootCause()
+                .hasMessageContaining("ck_ledger_entries_pix_transfer");
     }
 }

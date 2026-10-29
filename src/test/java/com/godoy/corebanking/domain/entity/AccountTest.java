@@ -11,6 +11,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -117,6 +118,123 @@ class AccountTest {
         assertThatThrownBy(() -> account.debit(new BigDecimal("10.00"), EntryCategory.WITHDRAWAL, "Saque"))
                 .isInstanceOf(BusinessRuleException.class)
                 .hasMessage("Conta BLOCKED não permite movimentação");
+        assertThat(account.getBalance()).isEqualByComparingTo("100.00");
+    }
+
+    // Movimentação PIX
+
+    private Account withId(Account account) {
+        ReflectionTestUtils.setField(account, "id", UUID.randomUUID());
+        return account;
+    }
+
+    private PixTransfer newTransfer(Account source, Account target, String amount) {
+        return new PixTransfer(source, target, new BigDecimal(amount), null, "E9999999920261029153000aB3dE5fG7", "key-1");
+    }
+
+    @Test
+    void pixDebitShouldUseTransferAmountAndLinkEntryToTransfer() {
+        Account source = withId(newAccountWithBalance("100.00"));
+        PixTransfer transfer = newTransfer(source, withId(newAccount()), "30.00");
+
+        LedgerEntry entry = source.debit(transfer, "PIX enviado");
+
+        assertThat(source.getBalance()).isEqualByComparingTo("70.00");
+        assertThat(entry.getType()).isEqualTo(EntryType.DEBIT);
+        assertThat(entry.getCategory()).isEqualTo(EntryCategory.PIX_OUT);
+        assertThat(entry.getAmount()).isEqualByComparingTo("30.00");
+        assertThat(entry.getBalanceAfter()).isEqualByComparingTo("70.00");
+        assertThat(entry.getDescription()).isEqualTo("PIX enviado");
+        assertThat(entry.getPixTransfer()).isSameAs(transfer);
+    }
+
+    @Test
+    void pixCreditShouldUseTransferAmountAndLinkEntryToTransfer() {
+        Account target = withId(newAccountWithBalance("10.00"));
+        PixTransfer transfer = newTransfer(withId(newAccount()), target, "30.00");
+
+        LedgerEntry entry = target.credit(transfer, "PIX recebido");
+
+        assertThat(target.getBalance()).isEqualByComparingTo("40.00");
+        assertThat(entry.getType()).isEqualTo(EntryType.CREDIT);
+        assertThat(entry.getCategory()).isEqualTo(EntryCategory.PIX_IN);
+        assertThat(entry.getAmount()).isEqualByComparingTo("30.00");
+        assertThat(entry.getBalanceAfter()).isEqualByComparingTo("40.00");
+        assertThat(entry.getPixTransfer()).isSameAs(transfer);
+    }
+
+    @Test
+    void pixDebitOfExactBalanceShouldLeaveZero() {
+        Account source = withId(newAccountWithBalance("100.00"));
+
+        source.debit(newTransfer(source, withId(newAccount()), "100.00"), "PIX enviado");
+
+        assertThat(source.getBalance()).isEqualByComparingTo(BigDecimal.ZERO);
+    }
+
+    @Test
+    void pixDebitShouldFailWhenBalanceIsInsufficient() {
+        Account source = withId(newAccountWithBalance("100.00"));
+        PixTransfer transfer = newTransfer(source, withId(newAccount()), "100.01");
+
+        assertThatThrownBy(() -> source.debit(transfer, "PIX enviado"))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessage("Saldo insuficiente para realizar esta operação");
+        assertThat(source.getBalance()).isEqualByComparingTo("100.00");
+    }
+
+    @Test
+    void pixDebitShouldFailWhenAccountIsNotTheSource() {
+        Account source = withId(newAccountWithBalance("100.00"));
+        Account target = withId(newAccountWithBalance("100.00"));
+        PixTransfer transfer = newTransfer(source, target, "30.00");
+
+        assertThatThrownBy(() -> target.debit(transfer, "PIX enviado"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("A conta não participa desta transferência");
+        assertThat(target.getBalance()).isEqualByComparingTo("100.00");
+    }
+
+    @Test
+    void pixCreditShouldFailWhenAccountIsNotTheTarget() {
+        Account source = withId(newAccountWithBalance("100.00"));
+        PixTransfer transfer = newTransfer(source, withId(newAccount()), "30.00");
+
+        assertThatThrownBy(() -> source.credit(transfer, "PIX recebido"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("A conta não participa desta transferência");
+        assertThat(source.getBalance()).isEqualByComparingTo("100.00");
+    }
+
+    @Test
+    void blockedAccountShouldNotSendOrReceivePix() {
+        Account source = withId(newAccountWithBalance("100.00"));
+        Account target = withId(newAccount());
+        PixTransfer transfer = newTransfer(source, target, "30.00");
+        source.block();
+        target.block();
+
+        assertThatThrownBy(() -> source.debit(transfer, "PIX enviado"))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessage("Conta BLOCKED não permite movimentação");
+        assertThatThrownBy(() -> target.credit(transfer, "PIX recebido"))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessage("Conta BLOCKED não permite movimentação");
+        assertThat(source.getBalance()).isEqualByComparingTo("100.00");
+        assertThat(target.getBalance()).isEqualByComparingTo(BigDecimal.ZERO);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = EntryCategory.class, names = {"PIX_IN", "PIX_OUT"})
+    void genericMovementShouldRejectPixCategories(EntryCategory category) {
+        Account account = newAccountWithBalance("100.00");
+
+        assertThatThrownBy(() -> account.credit(new BigDecimal("10.00"), category, "PIX"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Lançamento PIX exige a transferência");
+        assertThatThrownBy(() -> account.debit(new BigDecimal("10.00"), category, "PIX"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Lançamento PIX exige a transferência");
         assertThat(account.getBalance()).isEqualByComparingTo("100.00");
     }
 

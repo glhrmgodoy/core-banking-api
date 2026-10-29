@@ -82,36 +82,23 @@ public class Account {
     }
 
     public LedgerEntry credit(BigDecimal amount, EntryCategory category, String description) {
-        validateMovement(amount);
+        requireNonPixCategory(category);
+        return applyCredit(amount, category, description, null);
+    }
 
-        balance = balance.add(amount);
-
-        return new LedgerEntry(this,
-                EntryType.CREDIT,
-                category,
-                amount.setScale(2, RoundingMode.UNNECESSARY),
-                balance,
-                description
-        );
+    public LedgerEntry credit(PixTransfer transfer, String description) {
+        requireParticipant(transfer.getTargetAccount());
+        return applyCredit(transfer.getAmount(), EntryCategory.PIX_IN, description, transfer);
     }
 
     public LedgerEntry debit(BigDecimal amount, EntryCategory category, String description) {
-        validateMovement(amount);
+        requireNonPixCategory(category);
+        return applyDebit(amount, category, description, null);
+    }
 
-        if (balance.compareTo(amount) < 0) {
-            throw new BusinessRuleException("Saldo insuficiente para realizar esta operação");
-        }
-
-        balance = balance.subtract(amount);
-
-        return new LedgerEntry(
-                this,
-                EntryType.DEBIT,
-                category,
-                amount.setScale(2, RoundingMode.UNNECESSARY),
-                balance,
-                description
-        );
+    public LedgerEntry debit(PixTransfer transfer, String description) {
+        requireParticipant(transfer.getSourceAccount());
+        return applyDebit(transfer.getAmount(), EntryCategory.PIX_OUT, description, transfer);
     }
 
     public void changeLimits(BigDecimal daily, BigDecimal night) {
@@ -178,6 +165,42 @@ public class Account {
         }
 
         return new PixKey(this, type, value);
+    }
+
+    private LedgerEntry applyCredit(BigDecimal amount, EntryCategory category,
+                                    String description, PixTransfer transfer) {
+        validateMovement(amount);
+
+        balance = balance.add(amount);
+
+        return new LedgerEntry(this, transfer, EntryType.CREDIT, category,
+                amount.setScale(2, RoundingMode.UNNECESSARY), balance, description);
+    }
+
+    private LedgerEntry applyDebit(BigDecimal amount, EntryCategory category,
+                                   String description, PixTransfer transfer) {
+        validateMovement(amount);
+
+        if (balance.compareTo(amount) < 0) {
+            throw new BusinessRuleException("Saldo insuficiente para realizar esta operação");
+        }
+
+        balance = balance.subtract(amount);
+
+        return new LedgerEntry(this, transfer, EntryType.DEBIT, category,
+                amount.setScale(2, RoundingMode.UNNECESSARY), balance, description);
+    }
+
+    private void requireNonPixCategory(EntryCategory category) {
+        if (category == EntryCategory.PIX_IN || category == EntryCategory.PIX_OUT) {
+            throw new IllegalArgumentException("Lançamento PIX exige a transferência");
+        }
+    }
+
+    private void requireParticipant(Account account) {
+        if (!id.equals(account.getId())) {
+            throw new IllegalArgumentException("A conta não participa desta transferência");
+        }
     }
 
     private void validateMovement(BigDecimal amount) {

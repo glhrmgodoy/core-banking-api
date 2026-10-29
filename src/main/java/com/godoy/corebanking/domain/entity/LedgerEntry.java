@@ -30,6 +30,10 @@ public class LedgerEntry {
     @JoinColumn(name = "account_id", nullable = false)
     private Account account;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "pix_transfer_id")
+    private PixTransfer pixTransfer;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 10)
     private EntryType type;
@@ -51,8 +55,9 @@ public class LedgerEntry {
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
 
-    LedgerEntry(Account account, EntryType type, EntryCategory category, BigDecimal amount, BigDecimal balanceAfter, String description) {
+    LedgerEntry(Account account, PixTransfer pixTransfer, EntryType type, EntryCategory category, BigDecimal amount, BigDecimal balanceAfter, String description) {
         this.account = account;
+        this.pixTransfer = pixTransfer;
         this.type = type;
         this.category = category;
         this.amount = amount;
