@@ -8,6 +8,7 @@ import com.godoy.corebanking.domain.enums.PixTransferStatus;
 import com.godoy.corebanking.repository.AccountRepository;
 import com.godoy.corebanking.repository.CustomerRepository;
 import com.godoy.corebanking.repository.LedgerEntryRepository;
+import com.godoy.corebanking.repository.PixTransferRepository;
 import com.godoy.corebanking.util.AccountNumberUtils;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.BeforeEach;
@@ -44,6 +45,9 @@ class PixTransferPersistenceTest {
     private LedgerEntryRepository ledgerEntryRepository;
 
     @Autowired
+    private PixTransferRepository pixTransferRepository;
+
+    @Autowired
     private EntityManager entityManager;
 
     private Account source;
@@ -67,14 +71,14 @@ class PixTransferPersistenceTest {
     @Test
     void shouldPersistCompletedTransferWithBothLinkedEntries() {
         PixTransfer transfer = new PixTransfer(source, target, new BigDecimal("30.00"), "Almoço", END_TO_END_ID, "key-1");
-        entityManager.persist(transfer);
+        pixTransferRepository.save(transfer);
         ledgerEntryRepository.save(source.debit(transfer, "PIX enviado"));
         ledgerEntryRepository.save(target.credit(transfer, "PIX recebido"));
         transfer.complete(COMPLETED_AT);
         entityManager.flush();
         entityManager.clear();
 
-        PixTransfer found = entityManager.find(PixTransfer.class, transfer.getId());
+        PixTransfer found = pixTransferRepository.findById(transfer.getId()).orElseThrow();
 
         assertThat(found.getSourceAccount().getId()).isEqualTo(source.getId());
         assertThat(found.getTargetAccount().getId()).isEqualTo(target.getId());
@@ -102,34 +106,28 @@ class PixTransferPersistenceTest {
 
     @Test
     void databaseShouldRejectDuplicateEndToEndId() {
-        entityManager.persist(new PixTransfer(source, target, new BigDecimal("10.00"), null, END_TO_END_ID, "key-1"));
-        entityManager.flush();
+        pixTransferRepository.saveAndFlush(new PixTransfer(source, target, new BigDecimal("10.00"), null, END_TO_END_ID, "key-1"));
 
-        entityManager.persist(new PixTransfer(source, target, new BigDecimal("10.00"), null, END_TO_END_ID, "key-2"));
-
-        assertThatThrownBy(entityManager::flush)
+        assertThatThrownBy(() -> pixTransferRepository.saveAndFlush(
+                new PixTransfer(source, target, new BigDecimal("10.00"), null, END_TO_END_ID, "key-2")))
                 .rootCause()
                 .hasMessageContaining("uk_pix_transfers_end_to_end_id");
     }
 
     @Test
     void databaseShouldRejectDuplicateIdempotencyKey() {
-        entityManager.persist(new PixTransfer(source, target, new BigDecimal("10.00"), null, END_TO_END_ID, "key-1"));
-        entityManager.flush();
+        pixTransferRepository.saveAndFlush(new PixTransfer(source, target, new BigDecimal("10.00"), null, END_TO_END_ID, "key-1"));
 
-        entityManager.persist(new PixTransfer(source, target, new BigDecimal("10.00"), null,
-                "E9999999920261029153000xY1zW2vU3", "key-1"));
-
-        assertThatThrownBy(entityManager::flush)
+        assertThatThrownBy(() -> pixTransferRepository.saveAndFlush(new PixTransfer(source, target, new BigDecimal("10.00"), null,
+                "E9999999920261029153000xY1zW2vU3", "key-1")))
                 .rootCause()
                 .hasMessageContaining("uk_pix_transfers_idempotency_key");
     }
 
     @Test
     void databaseShouldRejectEndToEndIdOutOfFormat() {
-        entityManager.persist(new PixTransfer(source, target, new BigDecimal("10.00"), null, "E123", "key-1"));
-
-        assertThatThrownBy(entityManager::flush)
+        assertThatThrownBy(() -> pixTransferRepository.saveAndFlush(
+                new PixTransfer(source, target, new BigDecimal("10.00"), null, "E123", "key-1")))
                 .rootCause()
                 .hasMessageContaining("ck_pix_transfers_end_to_end_id_format");
     }
