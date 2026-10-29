@@ -101,6 +101,16 @@ public class Account {
         return applyDebit(transfer.getAmount(), EntryCategory.PIX_OUT, description, transfer);
     }
 
+    public void checkDailyLimit(BigDecimal amount, BigDecimal sentToday) {
+        validateMovement(amount);
+        checkLimit(amount, sentToday, dailyTransferLimit, "diário");
+    }
+
+    public void checkNightLimit(BigDecimal amount, BigDecimal sentTonight) {
+        validateMovement(amount);
+        checkLimit(amount, sentTonight, nightTransferLimit, "noturno");
+    }
+
     public void changeLimits(BigDecimal daily, BigDecimal night) {
         ensureNotClosed();
 
@@ -208,6 +218,12 @@ public class Account {
             throw new BusinessRuleException("Conta %s não permite movimentação".formatted(status));
         }
         validateAmount(amount, "Valor");
+    }
+
+    private void checkLimit(BigDecimal amount, BigDecimal alreadySent, BigDecimal limit, String limitName) {
+        if (alreadySent.add(amount).compareTo(limit) > 0) {
+            throw new BusinessRuleException("Valor excede o limite %s disponível".formatted(limitName));
+        }
     }
 
     private void validateAmount(BigDecimal amount, String field) {

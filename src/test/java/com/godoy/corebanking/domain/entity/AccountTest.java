@@ -18,6 +18,7 @@ import java.time.LocalDate;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class AccountTest {
@@ -236,6 +237,113 @@ class AccountTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("Lançamento PIX exige a transferência");
         assertThat(account.getBalance()).isEqualByComparingTo("100.00");
+    }
+
+    // Limites de transferência (padrão: diário R$ 5.000, noturno R$ 1.000)
+
+    @ParameterizedTest(name = "enviado {0} + valor {1}")
+    @CsvSource({
+            "0.00, 5000.00",
+            "4999.99, 0.01",
+            "3000.00, 2000.00"
+    })
+    void checkDailyLimitShouldAcceptUpToTheLimit(String sentToday, String amount) {
+        Account account = newAccount();
+
+        assertThatCode(() -> account.checkDailyLimit(new BigDecimal(amount), new BigDecimal(sentToday))).doesNotThrowAnyException();
+    }
+
+    @ParameterizedTest(name = "enviado {0} + valor {1}")
+    @CsvSource({
+            "0.00, 5000.01",
+            "5000.00, 0.01",
+            "3000.00, 2000.01"
+    })
+    void checkDailyLimitShouldRejectAboveTheLimit(String sentToday, String amount) {
+        Account account = newAccount();
+
+        assertThatThrownBy(() -> account.checkDailyLimit(new BigDecimal(amount), new BigDecimal(sentToday)))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessage("Valor excede o limite diário disponível");
+    }
+
+    @ParameterizedTest(name = "enviado {0} + valor {1}")
+    @CsvSource({
+            "0.00, 1000.00",
+            "999.99, 0.01",
+            "600.00, 400.00"
+    })
+    void checkNightLimitShouldAcceptUpToTheLimit(String sentTonight, String amount) {
+        Account account = newAccount();
+
+        assertThatCode(() -> account.checkNightLimit(new BigDecimal(amount), new BigDecimal(sentTonight))).doesNotThrowAnyException();
+    }
+
+    @ParameterizedTest(name = "enviado {0} + valor {1}")
+    @CsvSource({
+            "0.00, 1000.01",
+            "1000.00, 0.01",
+            "600.00, 400.01"
+    })
+    void checkNightLimitShouldRejectAboveTheLimit(String sentTonight, String amount) {
+        Account account = newAccount();
+
+        assertThatThrownBy(() -> account.checkNightLimit(new BigDecimal(amount), new BigDecimal(sentTonight)))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessage("Valor excede o limite noturno disponível");
+    }
+
+    @Test
+    void transferLimitsShouldFollowChangedLimits() {
+        Account account = newAccount();
+        account.changeLimits(new BigDecimal("8000.00"), new BigDecimal("200.00"));
+
+        assertThatCode(() -> account.checkDailyLimit(new BigDecimal("8000.00"), BigDecimal.ZERO)).doesNotThrowAnyException();
+        assertThatThrownBy(() -> account.checkNightLimit(new BigDecimal("200.01"), BigDecimal.ZERO))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessage("Valor excede o limite noturno disponível");
+    }
+
+    @Test
+    void transferLimitsShouldCompareIgnoringScale() {
+        Account account = newAccount();
+
+        assertThatCode(() -> account.checkDailyLimit(new BigDecimal("5000"), new BigDecimal("0"))).doesNotThrowAnyException();
+        assertThatCode(() -> account.checkNightLimit(new BigDecimal("1000.0"), new BigDecimal("0.00"))).doesNotThrowAnyException();
+    }
+
+    @Test
+    void transferLimitsShouldCheckAccountStatusBeforeLimit() {
+        Account account = newAccount();
+        account.block();
+
+        assertThatThrownBy(() -> account.checkDailyLimit(new BigDecimal("9999.00"), BigDecimal.ZERO))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessage("Conta BLOCKED não permite movimentação");
+        assertThatThrownBy(() -> account.checkNightLimit(new BigDecimal("9999.00"), BigDecimal.ZERO))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessage("Conta BLOCKED não permite movimentação");
+    }
+
+    @Test
+    void transferLimitsShouldRejectNegativeAmountInsteadOfIncreasingAvailableLimit() {
+        Account account = newAccount();
+
+        assertThatThrownBy(() -> account.checkDailyLimit(new BigDecimal("-100.00"), new BigDecimal("5000.00")))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessage("Valor deve ser maior que zero");
+        assertThatThrownBy(() -> account.checkNightLimit(new BigDecimal("-100.00"), new BigDecimal("1000.00")))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessage("Valor deve ser maior que zero");
+    }
+
+    @Test
+    void transferLimitsShouldRejectAmountWithMoreThanTwoDecimals() {
+        Account account = newAccount();
+
+        assertThatThrownBy(() -> account.checkDailyLimit(new BigDecimal("10.005"), BigDecimal.ZERO))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessage("Valor deve ter no máximo 2 casas decimais");
     }
 
     // Limites
