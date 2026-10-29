@@ -29,6 +29,11 @@ spring:
         max-page-size: 100
         serialization-mode: via-dto
 
+corebanking:
+  pix:
+    ispb: "99999999"
+    idempotency-ttl: 24h
+
 management:
   endpoints:
     web:
